@@ -20,8 +20,8 @@ DEV=1 node server.js             # no caching, so edits show without a version b
 Open the page over http, not `file://`: browsers load fonts under CORS
 rules, and Safari refuses local font files for a `file://` page. The data
 URL comes from `apiBase` in `js/config.js` (`''` = same origin), overridable
-with `?api=`. The stage is authored at 1080×1920 and scaled to fit any
-window.
+with `?api=`. The board is authored at 1080×1920 and fits any window at
+9:16 (rem-based, see [Layout](#layout)).
 
 ### URL params
 
@@ -69,8 +69,8 @@ origins, so it has to be a server-side proxy (credentials stay there).
 | `gamesRefreshMs`, `gamesRetryMs` | Re-select games every 5 min; retry every 30 s until a list loads |
 | `oddsRefreshMs`, `tradesRefreshMs` | Poll intervals for the matchup on screen (15 s / 30 s) |
 | `staleAfterMs` | Data older than this (120 s) is taken off screen |
-| `helmetsPath`, `nameMaxWidth` | Helmet folder; max team-name width before it is shrunk |
-| `feed` | Feed motion: tick gap, batch size, row counts |
+| `helmetsPath` | Helmet folder |
+| `feed` | Feed motion: tick gap, batch size; `visibleRows` sets the feed window height in rows (the row buffer is derived from it) |
 | `text` | Status line copy per state |
 
 Teams (name, colour, helmet slug) are in `js/teams.js`; helmet PNGs in
@@ -96,7 +96,7 @@ js/api.js           cached JSON client: LRU cache, request dedupe, timeout,
                     429 backoff with Retry-After + jitter, stale fallback
 js/data.js          game selection, polling, JSON -> per-game state
 js/feed.js          trades feed animation only (no fetching)
-js/board.js         rendering, display state machine, rotation, stage scaling
+js/board.js         rendering, display state machine, rotation
 server.js           dev server: static files + mock JSON API
 scripts/snapshot.js re-captures data/ from the live API
 data/               JSON snapshot
@@ -106,6 +106,35 @@ assets/             wordmark, OO Theran, helmets (from the deployed board's CDN)
 Animation and polling are independent: `data.js` polls on its own timers,
 `feed.js` runs its own irregular tick and only reads the trades `board.js`
 currently considers fresh.
+
+## Layout
+
+- **Sizing:** everything is in rem. `html { font-size: min(100vw / 108, 100vh / 192) }`
+  makes 1rem = 10px at 1080×1920 and fits the 108rem × 192rem board into
+  any viewport, keeping 9:16, without transforms or JS.
+- **Flow:** normal flow, no absolute or fixed positioning. The stage is a
+  flex column: the frame, then the disclaimer. The frame is a flex column:
+  logo, headline, the matchup rows, the status line, the feed. Spacing is
+  `margin-top` per element; the vertical rhythm is listed at the top of
+  `css/styles.css`.
+- **Sizes:** only the dynamic slots have a size: helmets (width + height),
+  team names and odds (width), the feed window (height = `visibleRows` rows,
+  from `config.feed.visibleRows`). Text takes its height from `line-height`;
+  everything else is fluid. The matchup rows are grids with columns
+  `minmax(0, 1fr) 7rem minmax(0, 1fr)`, so a wider or narrower name, number
+  or pill, a hidden pill (`visibility`) or a missing helmet never moves
+  anything else. Long team names are shrunk to fit their slot.
+- **Frame height:** follows its content (padding + logo … feed), so fewer
+  feed rows make the frame shorter and the disclaimer follows it up. It is
+  capped: the disclaimer's bottom margin marks the lowest the frame may
+  reach, the frame has `min-height: 0`, and past that point only the feed
+  window shrinks (as a flex item with `overflow: hidden` its minimum height
+  is 0; nothing else can go below its content). The design's 8 rows sit at
+  that cap, so a larger `visibleRows` by mistake never pushes the disclaimer
+  off the board; the extra rows just stay under the fade.
+- The only other fixed sizes are the canvas itself and static images (logo,
+  status dot, pill arrow), which would otherwise render at their intrinsic
+  pixel size.
 
 ## Display states (`.stage[data-state]`)
 
@@ -117,21 +146,26 @@ currently considers fresh.
 | `closed` | Event not open, or a market closed/settled | `—` values, empty feed, "Market closed" |
 | `no-game` | No open game, or an invalid `?event=` | Art hidden, "Football returns soon" |
 
-A missing helmet PNG hides that helmet; long names are shrunk to fit.
-
 ## Motion
 
 - **Feed:** every 0.7–1.8 s, 1–5 rows enter at the top with a 500 ms ease-out
-  fade while the track bounce-settles downward; the bottom fade overlay is fixed.
+  fade while the track bounce-settles downward; a fixed CSS mask on the feed
+  window fades the bottom out to transparent.
 - **Rotation:** every `rotateMs` the next game is prepared off screen first
-  (odds and trades refreshed, helmets decoded). Only then is the `.matchup`
-  block (helmets, names, odds, pills, feed) swapped in one synchronous update
-  inside a View Transition, a 1 s crossfade. Logo, frame, "vs" and the status
-  line aren't part of the transition and never move; the feed is refilled with
+  (odds and trades refreshed, helmets decoded). Only then are the two
+  `.matchup` blocks, `matchup-teams` (helmets, names, odds, pills) and
+  `matchup-feed` (the feed window), swapped in one synchronous update inside
+  a View Transition, a 1 s crossfade of just those two regions (the root
+  isn't captured). Right before it, the feed
+  holds new arrivals until the rows already in motion come to rest (≤ ~1 s),
+  because the outgoing side is a frozen snapshot and would otherwise show
+  half-faded rows as a gap; arrivals resume at the swap. Logo, headline,
+  frame and the status line (between the two blocks) aren't part of the
+  transition and never move; the feed is refilled with
   the new game's rows in the same update, so it never goes empty, and its ticks
   keep running. A game that isn't ready within `prepareTimeoutMs`, or isn't
   live, is skipped and the current matchup stays up. Without View Transitions
-  (older players) the block fades out, swaps and fades back in
+  (older players) both blocks fade out, swap and fade back in
   (`swapFadeMs`).
 
 Known behaviour kept from the deployed board (to revisit):

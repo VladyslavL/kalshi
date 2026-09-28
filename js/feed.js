@@ -4,7 +4,7 @@
 // Every tick (irregular, 0.7–1.8 s) 1–5 rows are prepended at the top, the
 // track is shifted up by their height with no transition, then released back
 // to 0 with a slightly overshooting curve: a 500 ms fade-in plus a soft
-// bounce-settle. The bottom fade overlay stays fixed in CSS.
+// bounce-settle. The bottom fade is a fixed mask on the feed window (CSS).
 
 'use strict';
 
@@ -13,7 +13,14 @@ window.Board = window.Board || {};
 Board.createFeed = function ({ track, config, getTrades, describe }) {
     const { formatMoney, randomBetween } = Board.utils;
     const feed = config.feed;
+    const ENTER_MS = 500;        // matches the .trade.enter animation
+    // The window shows visibleRows; a batch is prepended above it and slides
+    // in, so the track holds visibleRows + maxBatch rows and extras are only
+    // ever trimmed below the window, out of sight.
+    const maxRows = feed.visibleRows + feed.maxBatch;
     let index = 0;
+    let held = false;            // arrivals paused (see settle)
+    let restAt = 0;              // when the last arrival's motion ends
 
     function span(className, text) {
         const node = document.createElement('span');
@@ -39,7 +46,7 @@ Board.createFeed = function ({ track, config, getTrades, describe }) {
     function fill(trades) {
         track.style.transition = 'none';
         track.style.transform = 'translateY(0)';
-        track.replaceChildren(...Array.from({ length: feed.initialRows }, () => nextRow(trades)));
+        track.replaceChildren(...Array.from({ length: feed.visibleRows }, () => nextRow(trades)));
     }
 
     function arrive(trades) {
@@ -57,14 +64,18 @@ Board.createFeed = function ({ track, config, getTrades, describe }) {
         const duration = Math.round(340 + batch * 130 + Math.random() * 130);
         track.style.transition = `transform ${duration}ms cubic-bezier(0.34, 1.2, 0.64, 1)`;
         track.style.transform = 'translateY(0)';
-        while (track.children.length > feed.maxRows) track.lastChild.remove();
+        restAt = Date.now() + Math.max(duration, ENTER_MS);
+        while (track.children.length > maxRows) track.lastChild.remove();
     }
 
-    function tick() {
-        const trades = getTrades();
+    function step(trades) {
         if (!trades.length) track.replaceChildren();
         else if (!track.children.length) fill(trades);
         else arrive(trades);
+    }
+
+    function tick() {
+        if (!held) step(getTrades());
         setTimeout(tick, randomBetween(feed.minGapMs, feed.minGapMs + feed.gapJitterMs));
     }
 
@@ -73,8 +84,20 @@ Board.createFeed = function ({ track, config, getTrades, describe }) {
         index = 0;
     }
 
+    // Pauses arrivals and resolves once the rows in motion have come to rest, so
+    // a snapshot (the outgoing side of a View Transition) never freezes rows
+    // mid-entry as a gap. resume() lets the flow continue.
+    function settle() {
+        held = true;
+        return new Promise(resolve => setTimeout(resolve, Math.max(0, restAt - Date.now())));
+    }
+
+    function resume() {
+        held = false;
+    }
+
     // Matchup changed: swap in the new game's rows in one synchronous step (run
-    // inside the matchup transition), so the feed never goes empty; ticks carry on.
+    // inside the matchup transition), so the feed never goes empty.
     function refill(trades) {
         index = 0;
         if (trades.length) fill(trades);
@@ -85,5 +108,5 @@ Board.createFeed = function ({ track, config, getTrades, describe }) {
         setTimeout(tick, feed.firstTickMs);
     }
 
-    return { start, rewind, refill };
+    return { start, rewind, refill, settle, resume };
 };

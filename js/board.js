@@ -1,12 +1,12 @@
-// Board renderer: scales the 1080x1920 stage, paints the current matchup,
+// Board renderer: paints the current matchup,
 // maps the data onto a display state, rotates matchups and hands fresh trades
 // to the feed.
 //
 // Rotation: the next game is prepared off screen first (odds + trades
-// refreshed, helmets decoded); only then is the .matchup block swapped in one
+// refreshed, helmets decoded); only then are the .matchup blocks swapped in one
 // synchronous update inside a View Transition, so logo, frame and status line
-// never move and the feed never goes empty. Without View Transitions the block
-// fades out and back in instead.
+// never move and the feed never goes empty. Without View Transitions the blocks
+// fade out and back in instead.
 //
 // States (.stage[data-state]):
 //   loading  — before the first response; values show "—"
@@ -38,10 +38,6 @@
         return stage.querySelector(selector);
     }
 
-    function fitStage() {
-        document.querySelector('#scaler').style.transform = `scale(${Math.min(innerWidth / 1080, innerHeight / 1920)})`;
-    }
-
     function teamFor(game, slot) {
         return TEAMS[slot === 'left' ? game.away : game.home] || null;
     }
@@ -65,7 +61,7 @@
     }
 
     function fitNames() {
-        SLOTS.forEach(slot => utils.fitText(el(`.team-name[data-slot="${slot}"]`), config.nameMaxWidth));
+        SLOTS.forEach(slot => utils.fitText(el(`.team-name[data-slot="${slot}"]`)));
     }
 
     function renderMatchup(game) {
@@ -137,21 +133,24 @@
         else clearOdds();
     }
 
-    // Puts a prepared game on screen: DOM, odds and feed rows in one step.
+    // Puts a prepared game on screen: DOM, odds and feed rows in one step, then
+    // lets the (now live, new-side) feed flow again.
     function showEntry(entry) {
-        if (!data.select(entry)) return;
-        lastTradesAt = entry.tradesAt;
-        render();
-        feed.refill(freshTrades());
+        if (data.select(entry)) {
+            lastTradesAt = entry.tradesAt;
+            render();
+            feed.refill(freshTrades());
+        }
+        feed.resume();
     }
 
     function fadeSwap(update) {
-        const matchup = el('.matchup');
+        const blocks = stage.querySelectorAll('.matchup');
         return new Promise(resolve => {
-            matchup.classList.add('swapping');
+            blocks.forEach(block => block.classList.add('swapping'));
             setTimeout(() => {
                 update();
-                matchup.classList.remove('swapping');
+                blocks.forEach(block => block.classList.remove('swapping'));
                 setTimeout(resolve, config.swapFadeMs);
             }, config.swapFadeMs);
         });
@@ -171,7 +170,10 @@
         try {
             const prepared = Promise.all([data.prepare(next), preloadHelmets(next.game)]);
             const ready = await utils.settlesWithin(prepared, config.prepareTimeoutMs);
-            if (ready && stateOf(next) === 'live') await swapMatchup(() => showEntry(next));
+            if (ready && stateOf(next) === 'live') {
+                await feed.settle();   // the outgoing snapshot must not catch rows mid-entry
+                await swapMatchup(() => showEntry(next));
+            }
         } finally {
             rotating = false;
         }
@@ -182,13 +184,12 @@
         const root = document.documentElement.style;
         root.setProperty('--fade', `${config.fadeMs}ms`);
         root.setProperty('--swap-fade', `${config.swapFadeMs}ms`);
+        root.setProperty('--feed-rows', config.feed.visibleRows);
         const api = utils.queryParam('api');
         if (api) config.apiBase = api;
         const eventParam = utils.queryParam('event') || config.event;
         const pinned = eventParam ? utils.parseEventTicker(eventParam, config.series, TEAMS) : null;
 
-        addEventListener('resize', fitStage);
-        fitStage();
         document.fonts.ready.then(fitNames);
 
         feed = Board.createFeed({

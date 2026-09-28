@@ -26,15 +26,13 @@ Board.config = {
     staleAfterMs: 120_000,       // no fresh data for this long -> values come off screen
 
     helmetsPath: 'assets/helmets/',
-    nameMaxWidth: 470,           // px a team name may occupy before it is shrunk
 
     feed: {
         firstTickMs: 600,
         minGapMs: 700,           // pause between arrivals: min + random * jitter
         gapJitterMs: 1100,
         maxBatch: 5,             // rows that may arrive at once
-        initialRows: 11,
-        maxRows: 13,
+        visibleRows: 8,          // feed window height, in rows (the last ones fade out)
     },
 
     text: {

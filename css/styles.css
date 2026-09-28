@@ -1,5 +1,16 @@
-/* Kalshi NFL board — 1080x1920. Geometry follows the deployed daily board;
-   surround colours are sampled from the reference capture. */
+/* Kalshi NFL board — authored for 1080x1920. Geometry follows the deployed daily board.
+
+   Sizing: everything is in rem, and the root font size is the largest that
+   fits a 108rem x 192rem board into the viewport, so 1rem = 10px at
+   1080x1920 and the board scales to any screen without transforms.
+
+   Layout is normal flow. Only the dynamic slots have a size (helmets, team
+   names, odds, feed window); text takes its height from line-height and
+   everything else is fluid, so changing content never moves anything.
+
+   Vertical rhythm (px at 1080x1920, centres from the reference):
+     frame 57–1736 · logo 146 · headline 305 · helmets 550 · names 783
+     odds 918 · pills 1023 · status 1131 · feed 1174–1670 · disclaimer 1820 */
 
 /* Inter and Bebas Neue load from Google Fonts (index.html). */
 
@@ -18,270 +29,217 @@
     box-sizing: border-box;
 }
 
+html {
+    font-size: min(100vw / 108, 100vh / 192);
+}
+
 html, body {
-    width: 100%;
     height: 100%;
     background: #000;
     overflow: hidden;
 }
 
+/* The body centres the board in the window. */
 body.board {
+    display: grid;
+    place-items: center;
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     color: #fff;
 }
 
-#viewport {
-    position: fixed;
-    inset: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: #000;
-}
-
-/* Native board size; JS scales it to fit the viewport. flex: none keeps the
-   flex centering from shrinking the box, which would offset the transform. */
-#scaler {
-    flex: none;
-    width: 1080px;
-    height: 1920px;
-    position: relative;
-    transform-origin: center center;
-}
-
-/* The stage carries the per-matchup palette (set by board.js). */
+/* The board canvas. It carries the per-matchup palette (set by board.js). */
 .stage {
     --left-color: #FFB612;
     --right-color: #FF3C00;
     --kalshi-green: #00dd94;
     --pill-bg: rgba(49, 49, 49, 0.45);
-    --frame-fill-bottom: rgb(0, 20, 15);
-    position: absolute;
-    inset: 0;
-    width: 1080px;
-    height: 1920px;
+    --vs-column: 7rem;              /* centre gap; team columns centre on x 282 / 798 */
+    width: 108rem;
+    height: 192rem;
+    padding-top: 5.7rem;
+    display: flex;
+    flex-direction: column;
     background: #000;
     overflow: hidden;
 }
 
-/* Teal glass surround: glows down from the top edge and up into the frame's
-   lower edge; the disclaimer strip below the frame stays pure black. */
-.bg-glow {
-    position: absolute;
-    left: 0;
-    top: 0;
-    width: 1080px;
-    height: 1740px;
-    pointer-events: none;
-    background: linear-gradient(180deg,
-        rgb(1, 25, 19) 0,
-        rgb(1, 17, 13) 100px,
-        rgb(0, 11, 9) 200px,
-        rgb(0, 7, 5) 300px,
-        rgb(1, 3, 3) 400px,
-        #000 560px,
-        #000 1250px,
-        rgb(0, 4, 3) 1400px,
-        rgb(1, 12, 9) 1600px,
-        rgb(0, 19, 15) 1740px);
-}
-
-/* Green-outlined glass frame that holds the whole composition. */
+/* Green-outlined glass frame that holds the whole composition; its height
+   follows the content (ends at y 1736 with the default 8 feed rows).
+   min-height: 0 lets it shrink when the content would push the disclaimer off
+   the board; only the feed gives way (see .trades-feed). */
 .frame {
-    position: absolute;
-    left: 56.5px;
-    top: 57px;
-    width: 967px;
-    height: 1679px;
-    border: 2.444px solid var(--kalshi-green);
-    border-radius: 37.042px;
-    background: linear-gradient(180deg,
-        rgb(0, 22, 17) 0%,
-        rgb(0, 20, 16) 2.6%,
-        rgb(0, 18, 14) 14.5%,
-        rgb(0, 17, 13) 20.5%,
-        rgb(0, 16, 13) 26.4%,
-        rgb(0, 16, 12) 44%,
-        rgb(0, 16, 13) 68%,
-        rgb(0, 17, 13) 80%,
-        rgb(0, 19, 14) 92%,
-        rgb(0, 21, 16) 100%);
-    pointer-events: none;
+    min-height: 0;
+    margin: 0 5.65rem;
+    padding: 8.66rem 0 7.16rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    border: 0.2444rem solid var(--kalshi-green);
+    border-radius: 3.7042rem;
+    background: rgba(0, 22, 17, 0.72);
 }
 
 .kalshi-mark {
-    position: absolute;
     display: block;
-    left: 540px;
-    top: 146px;
-    width: 357.584px;
-    height: 104.214px;
-    transform: translateX(-50%);
+    width: 35.7584rem;
+    height: 10.4214rem;
 }
 
 .headline {
-    position: absolute;
-    left: 540px;
-    top: 305px;
+    margin-top: 2.68rem;
+    margin-inline: 4rem;
     font-weight: 400;
-    font-size: 56px;
-    text-align: center;
-    line-height: 1;
-    letter-spacing: 0;
-    color: #fff;
-    white-space: nowrap;
-    transform: translate(-50%, -50%);
+    font-size: 5.6rem;
 }
 
-/* Chrome helmet tokens. */
-.helmet {
-    position: absolute;
-    width: 440px;
-    height: 440px;
-    top: 330px;
-    object-fit: contain;
-    display: block;
-    pointer-events: none;
-    user-select: none;
+/* ----- Matchup rows -------------------------------------------------------- */
+/* Each row is a three-column grid: left team | vs | right team.
+   minmax(0, 1fr) stops a long name from widening its column. */
+.matchup-teams {
+    align-self: stretch;
+    margin-top: 2.7rem;
 }
-.helmet[data-slot="left"] { left: 62px; transform: scaleX(-1); }   /* centre x = 282 */
-.helmet[data-slot="right"] { left: 578px; }                        /* centre x = 798 */
+
+.pair {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) var(--vs-column) minmax(0, 1fr);
+    align-items: center;
+    justify-items: center;
+}
+.pair > [data-slot="left"] { grid-column: 1; }
+.pair > [data-slot="right"] { grid-column: 3; }
+
+.names { margin-top: 1.155rem; }
+.odds { margin-top: 4.52rem; }
+.pills { margin-top: 1.33rem; }
+
+/* The helmet PNGs carry transparent padding; the 44rem image overhangs its
+   row by 3rem top and bottom instead of pushing the names down. */
+.helmet {
+    display: block;
+    width: 44rem;
+    height: 44rem;
+    margin: -3rem 0;
+    object-fit: contain;
+}
+.helmet[data-slot="left"] { transform: scaleX(-1); }   /* teams face each other */
 .helmet.missing,
 .helmet:not([src]) { visibility: hidden; }
 
-/* Team names. Font size is shrunk by board.js when a long name would overflow
-   its half of the board. */
+/* Team names. board.js shrinks the font when a long name overflows the slot. */
 .team-name {
-    position: absolute;
-    top: 783px;
+    width: 44rem;
     font-family: 'Bebas Neue', 'Inter', sans-serif;
     font-weight: 400;
-    font-size: 74px;
-    text-transform: uppercase;
-    text-align: center;
+    font-size: 7.4rem;
     line-height: 0.85;
-    letter-spacing: 0;
+    text-align: center;
+    text-transform: uppercase;
     white-space: nowrap;
-    transform: translate(-50%, -50%);
 }
-.team-name[data-slot="left"] { left: 282px; color: var(--left-color); }
-.team-name[data-slot="right"] { left: 798px; color: var(--right-color); }
+.team-name[data-slot="left"] { color: var(--left-color); }
+.team-name[data-slot="right"] { color: var(--right-color); }
 
+/* "vs" sits 2.9rem below the names' centre line, as in the design; translate
+   moves it without affecting the row. */
 .vs {
-    position: absolute;
-    left: 540px;
-    top: 812px;
+    grid-column: 2;
+    translate: 0 2.9rem;
     font-weight: 600;
-    font-size: 43.83px;
+    font-size: 4.383rem;
+    line-height: 1;
     color: #cacaca;
     text-transform: uppercase;
-    text-align: center;
-    transform: translate(-50%, -50%);
 }
 
 /* Big LED-style win percentages (OO Theran dot-matrix). */
 .pct {
-    position: absolute;
-    top: 918px;
+    width: 44rem;
     font-family: 'OO Theran', 'Courier New', monospace;
     font-weight: 300;
-    font-size: 162px;
-    line-height: 1;
+    font-size: 16.2rem;
+    line-height: 0.72;
     letter-spacing: -0.03em;
+    text-align: center;
     white-space: nowrap;
-    transform: translate(-50%, -50%);
 }
-.pct[data-slot="left"] { left: 282px; color: var(--left-color); }
-.pct[data-slot="right"] { left: 798px; color: var(--right-color); }
+.pct[data-slot="left"] { color: var(--left-color); }
+.pct[data-slot="right"] { color: var(--right-color); }
 
-/* Payout pills. */
+/* Payout pills: centred in their column, so a longer amount never moves anything. */
 .payout {
-    position: absolute;
-    top: 1023px;
     display: inline-flex;
     align-items: center;
-    justify-content: center;
     background: var(--pill-bg);
-    border: 2.07px solid #fff;
-    border-radius: 60.581px;
+    border: 0.207rem solid #fff;
+    border-radius: 6.0581rem;
     font-weight: 400;
-    font-size: 40.684px;
-    padding: 11.219px 21px;
+    font-size: 4.0684rem;
+    padding: 1.1219rem 2.1rem;
     line-height: 1;
     white-space: nowrap;
-    color: #fff;
-    transform: translate(-50%, -50%);
 }
 .payout .arrow {
-    width: 40px;
-    height: 40px;
-    margin: 0 10px 0 12px;
+    width: 4rem;
+    height: 4rem;
+    margin: 0 1rem 0 1.2rem;
     fill: none;
     stroke: currentColor;
     stroke-width: 1.8;
 }
-.payout[data-slot="left"] { left: 282px; border-color: var(--left-color); }
-.payout[data-slot="right"] { left: 798px; border-color: var(--right-color); }
+.payout[data-slot="left"] { border-color: var(--left-color); }
+.payout[data-slot="right"] { border-color: var(--right-color); }
 
-/* "● LIVE TRADING" indicator. */
+/* ----- "● LIVE TRADING" indicator ----------------------------------------- */
 .live {
-    position: absolute;
-    left: 540px;
-    top: 1131px;
-    display: inline-flex;
+    margin-top: 6.16rem;
+    display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 1.2rem;
     font-weight: 400;
-    font-size: 26px;
+    font-size: 2.6rem;
+    line-height: 1;
     letter-spacing: 0.02em;
     text-transform: uppercase;
-    color: #fff;
     white-space: nowrap;
-    transform: translate(-50%, -50%);
 }
 .live .dot {
-    width: 20px;
-    height: 20px;
+    width: 2rem;
+    height: 2rem;
     border-radius: 50%;
     background: #ff0000;
-    display: inline-block;
     animation: live-pulse 1.4s ease-in-out infinite;
 }
 @keyframes live-pulse { 50% { opacity: .35; } }
 
-/* Flowing live-trades feed. New trades drop in at the top and the whole column
-   bounce-settles downward on each arrival; the bottom fades out as trades age. */
+/* ----- Flowing live-trades feed ------------------------------------------- */
+/* New trades drop in at the top and the whole column bounce-settles downward
+   on each arrival. A mask on the feed window fades the bottom 38% out to
+   transparent, whatever sits behind it. (-webkit- for older Chromium players.)
+   The window is visibleRows tall, but as a flex item with overflow: hidden its
+   minimum height is 0, so it shrinks when the frame reaches its maximum. */
 .trades-feed {
-    position: absolute;
-    left: 200px;
-    top: 1174px;
-    width: 680px;
-    height: 496px;
+    --row: 3.9rem;       /* one trade row: font-size x line-height 1 */
+    --row-gap: 2.2rem;
+    width: 68rem;
+    height: calc(var(--feed-rows, 8) * (var(--row) + var(--row-gap)));   /* rows set in config.feed.visibleRows */
+    margin-top: 3rem;
     overflow: hidden;
-}
-/* Fixed fade overlay rather than a CSS mask: a mask re-rasterises every frame
-   the track moves, the overlay composites once. It fades into the frame fill
-   (not #000) so no darker box shows around the feed. */
-.trades-feed::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-    background: linear-gradient(to bottom, transparent 0%, transparent 62%, var(--frame-fill-bottom) 100%);
+    -webkit-mask-image: linear-gradient(to bottom, #000 62%, transparent 100%);
+    mask-image: linear-gradient(to bottom, #000 62%, transparent 100%);
 }
 .trades-feed-track {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 22px;
-    font-size: 39px;
+    gap: var(--row-gap);
+    font-size: var(--row);
     line-height: 1;
 }
 .trade {
     display: inline-flex;
     align-items: baseline;
-    justify-content: center;
-    gap: 18px;
+    gap: 1.8rem;
     white-space: nowrap;
 }
 .trade.enter { animation: trade-appear 500ms ease-out both; }
@@ -299,22 +257,17 @@ body.board {
 }
 
 .disclaimer {
-    position: absolute;
-    left: 540px;
-    top: 1820px;
-    width: 928px;
-    font-size: 12.889px;
-    opacity: 0.35;
-    color: #fff;
-    text-align: center;
-    line-height: 1.25;
+    margin: 5.98rem 7.6rem 7.58rem;   /* bottom margin = the frame's upper bound */
+    font-size: 1.2889rem;
     font-weight: 600;
-    transform: translate(-50%, -50%);
+    line-height: 1.25;
+    text-align: center;
+    opacity: 0.35;
 }
 
 /* ----- Data states (.stage[data-state], set by board.js) ----------------- */
 /* Anything but "live" hides the payouts and stops the live dot pulsing, so old
-   values are never presented as live. */
+   values are never presented as live. `visibility` keeps every slot's space. */
 .stage:not([data-state="live"]) .payout { visibility: hidden; }
 .stage:not([data-state="live"]) .live .dot { animation: none; background: #6b6b6b; }
 .stage[data-state="no-game"] .helmet,
@@ -323,19 +276,19 @@ body.board {
 .stage[data-state="no-game"] .pct { visibility: hidden; }
 
 /* ----- Matchup rotation ----------------------------------------------------- */
-/* Only the .matchup block takes part in the View Transition; the root is not
-   captured, so logo, frame and status line keep rendering live throughout. */
+/* Only the two .matchup blocks (teams, feed) take part in the View Transition;
+   the root is not captured, so logo, frame and status line keep rendering
+   live throughout. */
 :root { view-transition-name: none; }
 
-.matchup {
-    position: absolute;
-    inset: 0;
-    view-transition-name: matchup;
-    transition: opacity var(--swap-fade, 300ms) ease-in-out;
-}
+.matchup { transition: opacity var(--swap-fade, 300ms) ease-in-out; }
+.matchup-teams { view-transition-name: matchup-teams; }
+.trades-feed { view-transition-name: matchup-feed; }
 
-::view-transition-old(matchup),
-::view-transition-new(matchup) {
+::view-transition-old(matchup-teams),
+::view-transition-new(matchup-teams),
+::view-transition-old(matchup-feed),
+::view-transition-new(matchup-feed) {
     animation-duration: var(--fade, 1000ms);
     animation-timing-function: ease-in-out;
 }

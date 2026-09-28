@@ -63,13 +63,15 @@ Board.utils = (function () {
         return '#FFFFFF';
     }
 
-    // Shrinks an element's font so it fits `maxWidth` (layout px, unaffected by
-    // the stage scale transform).
-    function fitText(element, maxWidth) {
+    // Shrinks an element's font until its text fits the element's own width.
+    // The size is set in rem so it keeps scaling with the root font size.
+    function fitText(element) {
         element.style.fontSize = '';
-        const full = parseFloat(getComputedStyle(element).fontSize);
-        const width = element.offsetWidth;
-        if (width > maxWidth) element.style.fontSize = `${(full * maxWidth / width).toFixed(2)}px`;
+        if (element.scrollWidth <= element.clientWidth) return;
+        const rootPx = parseFloat(getComputedStyle(document.documentElement).fontSize);
+        const fullPx = parseFloat(getComputedStyle(element).fontSize);
+        const fitted = fullPx * element.clientWidth / element.scrollWidth / rootPx;
+        element.style.fontSize = `${fitted.toFixed(3)}rem`;
     }
 
     function randomBetween(min, max) {
