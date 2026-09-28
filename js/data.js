@@ -1,0 +1,221 @@
+// Data layer: selects the games, polls odds and trades on its own timers,
+// maps the Kalshi JSON onto the board's two slots and signals `onChange`.
+// It never touches the DOM or the feed animation.
+//
+// Daily mode: the open-events list picks the rotation and seeds every game's
+// odds; afterwards only the game on screen is polled, and the next game is
+// refreshed by `prepare()` right before the board switches to it. Pinned mode
+// (?event=): a single game, no list.
+
+'use strict';
+
+window.Board = window.Board || {};
+
+Board.createDataSource = function ({ config, teams, pinned, onChange }) {
+    const { marketSuffix, parseEventTicker } = Board.utils;
+    const client = Board.createClient();
+    const base = config.apiBase.replace(/\/$/, '');
+    const endpoints = {
+        events: () => `${base}/events?series_ticker=${config.series}&status=open&limit=200&with_nested_markets=true`,
+        event: ticker => `${base}/events/${ticker}?with_nested_markets=true`,
+        trades: market => `${base}/markets/trades?ticker=${market}&limit=20`,
+    };
+    const entries = new Map();   // ticker -> per-game state
+    let order = [];              // tickers in rotation order
+    let index = 0;
+    let listLoaded = false;      // the set of games is known
+    let gamesAt = 0;             // last successful games selection
+    let settled = false;         // at least one games/odds request has completed
+    let fetchingGames = false;
+
+    function entryFor(game) {
+        if (!entries.has(game.ticker)) {
+            entries.set(game.ticker, {
+                game,              // { ticker, blob, away, home }
+                prices: null,      // { left, right } 0–1 contract prices
+                oddsAt: 0,         // data timestamp of the last good odds
+                closed: false,
+                trades: [],        // newest first: { id, at, dollars, abbr }
+                tradesAt: 0,
+                oddsRequest: null,    // in-flight promises, shared by pollers and prepare()
+                tradesRequest: null,
+            });
+        }
+        return entries.get(game.ticker);
+    }
+
+    function current() {
+        return entries.get(order[index]) || null;
+    }
+
+    function isClosed(event, markets) {
+        const status = String(event?.status || '').toLowerCase();
+        if (status && status !== 'open') return true;
+        return markets.some(m => m.result || !['active', 'open'].includes(m.status));
+    }
+
+    // Two market suffixes are the authoritative team pair; whichever starts
+    // the ticker's blob is the away side.
+    function adoptTeams(entry, markets) {
+        if (entry.game.away && entry.game.home) return;
+        const pair = [...new Set(markets.map(m => marketSuffix(m.ticker)).filter(s => teams[s]))];
+        if (pair.length !== 2) return;
+        const [a, b] = pair;
+        const sides = entry.game.blob === a + b ? { away: a, home: b } : { away: b, home: a };
+        entry.game = { ...entry.game, ...sides };
+    }
+
+    // Last traded price, then the ask, then raw cents. Returns 0–1 or null.
+    function priceOf(market) {
+        const last = parseFloat(market.last_price_dollars || '0');
+        if (last > 0) return last;
+        const ask = parseFloat(market.yes_ask_dollars || '0');
+        if (ask > 0) return ask;
+        const cents = market.last_price ?? market.yes_ask ?? 0;
+        return cents ? cents / 100 : null;
+    }
+
+    function pricesFrom(game, markets) {
+        const prices = {};
+        markets.forEach(m => {
+            const suffix = marketSuffix(m.ticker);
+            if (suffix === game.away) prices.left = priceOf(m);
+            if (suffix === game.home) prices.right = priceOf(m);
+        });
+        const valid = p => p > 0 && p <= 1;
+        return valid(prices.left) && valid(prices.right) ? prices : null;
+    }
+
+    function applyEvent(entry, event, markets, at) {
+        const binary = (markets || []).filter(m => m && m.market_type === 'binary');
+        adoptTeams(entry, binary);
+        entry.closed = isClosed(event, binary);
+        const prices = entry.closed ? null : pricesFrom(entry.game, binary);
+        if (prices) {
+            entry.prices = prices;
+            entry.oddsAt = at;
+        }
+    }
+
+    async function refreshGames() {
+        if (fetchingGames) return;
+        fetchingGames = true;
+        try {
+            const { data, at } = await client.get(endpoints.events(), { maxAge: 30_000, maxStale: config.staleAfterMs });
+            const shown = order[index];
+            const selected = Board.games.select(data?.events || [], config.series, config.dailyGames).flatMap(event => {
+                const game = parseEventTicker(event.event_ticker, config.series, teams);
+                return game ? [{ game, event }] : [];
+            });
+            selected.forEach(({ game, event }) => applyEvent(entryFor(game), event, event.markets, at));
+            order = selected.map(({ game }) => game.ticker);
+            for (const ticker of entries.keys()) if (!order.includes(ticker)) entries.delete(ticker);
+            index = Math.max(0, order.indexOf(shown));
+            listLoaded = true;
+            gamesAt = Date.now();
+        } catch (err) {
+            // Keep the current rotation; its values expire by age.
+        } finally {
+            fetchingGames = false;
+            settled = true;
+            onChange();
+        }
+    }
+
+    async function loadOdds(entry) {
+        try {
+            const { data, at } = await client.get(endpoints.event(entry.game.ticker), {
+                maxAge: config.oddsRefreshMs / 2, maxStale: config.staleAfterMs,
+            });
+            applyEvent(entry, data?.event, data?.event?.markets || data?.markets, at);
+        } catch (err) {
+            // Values expire by age; the board shows the stale state.
+        } finally {
+            settled = true;
+            onChange();
+        }
+    }
+
+    function refreshOdds(entry = current()) {
+        if (!entry) return Promise.resolve();
+        entry.oddsRequest ||= loadOdds(entry).finally(() => { entry.oddsRequest = null; });
+        return entry.oddsRequest;
+    }
+
+    // Trades under $0.50 would round to "$0" on the board, so they are dropped.
+    function tradesFrom(data, market, abbr) {
+        return (data?.trades || []).filter(t => t.ticker === market).map(t => {
+            const count = Number(t.count_fp ?? t.count);
+            const price = Number(t.yes_price_dollars ?? ((t.yes_price || 0) / 100));
+            return { id: t.trade_id, at: t.created_time, count, dollars: count * price, abbr };
+        }).filter(t => t.id && t.count > 0 && Math.round(t.dollars) >= 1);
+    }
+
+    async function loadTrades(entry) {
+        const { ticker, away, home } = entry.game;
+        try {
+            const results = await Promise.all([away, home].map(async abbr => {
+                const market = `${ticker}-${abbr}`;
+                const { data, at } = await client.get(endpoints.trades(market), {
+                    maxAge: config.tradesRefreshMs / 2, maxStale: config.staleAfterMs,
+                });
+                return { at, rows: tradesFrom(data, market, abbr) };
+            }));
+            const unique = new Map();
+            results.flatMap(result => result.rows).forEach(t => unique.set(t.id, t));
+            entry.trades = [...unique.values()].sort((a, b) => b.at.localeCompare(a.at));
+            entry.tradesAt = Math.min(...results.map(result => result.at));
+            onChange();
+        } catch (err) {
+            // Unavailable trades never produce placeholder rows; the old set expires by age.
+        }
+    }
+
+    function refreshTrades(entry = current()) {
+        if (!entry || !entry.game.away || !entry.game.home) return Promise.resolve();
+        entry.tradesRequest ||= loadTrades(entry).finally(() => { entry.tradesRequest = null; });
+        return entry.tradesRequest;
+    }
+
+    // The game after the one on screen, or null when there is nothing to rotate to.
+    function next() {
+        return order.length < 2 ? null : entries.get(order[(index + 1) % order.length]) || null;
+    }
+
+    // Brings a game's odds and trades up to date before it goes on screen.
+    async function prepare(entry) {
+        await refreshOdds(entry);    // settles away/home before trades are requested
+        await refreshTrades(entry);
+    }
+
+    // Puts a game on screen; false if it has dropped out of the rotation meanwhile.
+    function select(entry) {
+        const position = order.indexOf(entry.game.ticker);
+        if (position < 0) return false;
+        index = position;
+        return true;
+    }
+
+    async function start() {
+        if (pinned) {
+            order = [entryFor(pinned).game.ticker];
+            listLoaded = true;
+            await refreshOdds();     // settles away/home before trades are requested
+        } else {
+            await refreshGames();
+            // Re-select every gamesRefreshMs; retry sooner until a list has loaded.
+            setInterval(() => {
+                if (!listLoaded || Date.now() - gamesAt >= config.gamesRefreshMs) refreshGames();
+            }, config.gamesRetryMs);
+        }
+        refreshTrades();
+        setInterval(() => refreshOdds(), config.oddsRefreshMs);
+        setInterval(() => refreshTrades(), config.tradesRefreshMs);
+    }
+
+    function status() {
+        return { settled, listLoaded, count: order.length };
+    }
+
+    return { start, current, next, prepare, select, status };
+};

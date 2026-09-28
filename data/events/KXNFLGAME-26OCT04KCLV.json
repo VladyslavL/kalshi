@@ -1,0 +1,131 @@
+{
+    "event": {
+        "category": "Sports",
+        "collateral_return_type": "MECNET",
+        "event_ticker": "KXNFLGAME-26OCT04KCLV",
+        "exchange_index": 0,
+        "last_updated_ts": "0001-01-01T00:00:00Z",
+        "markets": [
+            {
+                "can_close_early": true,
+                "close_time": "2026-10-06T20:25:00Z",
+                "created_time": "2026-09-22T04:01:15.051336Z",
+                "custom_strike": {
+                    "football_team": "8b1ce23e-7d64-4213-85e9-7d12bc8c4d85"
+                },
+                "early_close_condition": "This market will close and expire after a winner is declared.",
+                "event_ticker": "KXNFLGAME-26OCT04KCLV",
+                "exchange_index": 0,
+                "expected_expiration_time": "2026-10-04T23:25:00Z",
+                "expiration_time": "2026-10-06T20:25:00Z",
+                "expiration_value": "",
+                "last_price_dollars": "0.3500",
+                "latest_expiration_time": "2026-10-06T20:25:00Z",
+                "liquidity_dollars": "0.0000",
+                "market_type": "binary",
+                "no_ask_dollars": "0.6600",
+                "no_bid_dollars": "0.6500",
+                "no_sub_title": "Las Vegas",
+                "notional_value_dollars": "1.0000",
+                "occurrence_datetime": "2026-10-04T23:25:00Z",
+                "open_interest_fp": "210906.02",
+                "open_time": "2026-09-22T04:05:00Z",
+                "previous_price_dollars": "0.3200",
+                "previous_yes_ask_dollars": "0.3200",
+                "previous_yes_bid_dollars": "0.2900",
+                "price_level_structure": "linear_cent",
+                "price_ranges": [
+                    {
+                        "end": "1.0000",
+                        "start": "0.0000",
+                        "step": "0.0100"
+                    }
+                ],
+                "result": "",
+                "rules_primary": "If Las Vegas wins the KC Chiefs vs LV Raiders Pro Football game originally scheduled for Oct 4, 2026, then the market resolves to Yes.",
+                "rules_secondary": "The following market refers to the team who wins the KC Chiefs vs LV Raiders Pro Football game originally scheduled for Oct 4, 2026. If the game ends in a tie, the market will resolve to $0.50 for each team. If the game is postponed but begins within 48 hours from its originally scheduled start time, the market will remain open and resolve based on the official final result. If the game is not started within 48 hours, the market will resolve to a fair price.\n\nKalshi is not affiliated, associated, authorized, endorsed by, or in any way officially connected with the Governing League. All trademarks, logos, and brand names are the property of their respective owners.",
+                "settlement_timer_seconds": 60,
+                "status": "active",
+                "strike_type": "structured",
+                "ticker": "KXNFLGAME-26OCT04KCLV-LV",
+                "title": "Las Vegas wins",
+                "updated_time": "2026-09-22T04:05:01.099462Z",
+                "volume_24h_fp": "207731.97",
+                "volume_fp": "229194.61",
+                "yes_ask_dollars": "0.3500",
+                "yes_ask_size_fp": "341906.51",
+                "yes_bid_dollars": "0.3400",
+                "yes_bid_size_fp": "17315.36",
+                "yes_sub_title": "Las Vegas"
+            },
+            {
+                "can_close_early": true,
+                "close_time": "2026-10-06T20:25:00Z",
+                "created_time": "2026-09-22T04:01:15.051336Z",
+                "custom_strike": {
+                    "football_team": "64f72720-2e4a-4cc8-a39b-ca148aecb389"
+                },
+                "early_close_condition": "This market will close and expire after a winner is declared.",
+                "event_ticker": "KXNFLGAME-26OCT04KCLV",
+                "exchange_index": 0,
+                "expected_expiration_time": "2026-10-04T23:25:00Z",
+                "expiration_time": "2026-10-06T20:25:00Z",
+                "expiration_value": "",
+                "last_price_dollars": "0.6600",
+                "latest_expiration_time": "2026-10-06T20:25:00Z",
+                "liquidity_dollars": "0.0000",
+                "market_type": "binary",
+                "no_ask_dollars": "0.3500",
+                "no_bid_dollars": "0.3400",
+                "no_sub_title": "Kansas City",
+                "notional_value_dollars": "1.0000",
+                "occurrence_datetime": "2026-10-04T23:25:00Z",
+                "open_interest_fp": "76679.96",
+                "open_time": "2026-09-22T04:05:00Z",
+                "previous_price_dollars": "0.7000",
+                "previous_yes_ask_dollars": "0.7000",
+                "previous_yes_bid_dollars": "0.6800",
+                "price_level_structure": "linear_cent",
+                "price_ranges": [
+                    {
+                        "end": "1.0000",
+                        "start": "0.0000",
+                        "step": "0.0100"
+                    }
+                ],
+                "result": "",
+                "rules_primary": "If Kansas City wins the KC Chiefs vs LV Raiders Pro Football game originally scheduled for Oct 4, 2026, then the market resolves to Yes.",
+                "rules_secondary": "The following market refers to the team who wins the KC Chiefs vs LV Raiders Pro Football game originally scheduled for Oct 4, 2026. If the game ends in a tie, the market will resolve to $0.50 for each team. If the game is postponed but begins within 48 hours from its originally scheduled start time, the market will remain open and resolve based on the official final result. If the game is not started within 48 hours, the market will resolve to a fair price.\n\nKalshi is not affiliated, associated, authorized, endorsed by, or in any way officially connected with the Governing League. All trademarks, logos, and brand names are the property of their respective owners.",
+                "settlement_timer_seconds": 60,
+                "status": "active",
+                "strike_type": "structured",
+                "ticker": "KXNFLGAME-26OCT04KCLV-KC",
+                "title": "Kansas City wins",
+                "updated_time": "2026-09-22T04:05:01.099462Z",
+                "volume_24h_fp": "69513.70",
+                "volume_fp": "89607.98",
+                "yes_ask_dollars": "0.6600",
+                "yes_ask_size_fp": "65802.08",
+                "yes_bid_dollars": "0.6500",
+                "yes_bid_size_fp": "317679.29",
+                "yes_sub_title": "Kansas City"
+            }
+        ],
+        "mutually_exclusive": true,
+        "product_metadata": {
+            "competition": "Pro Football",
+            "competition_scope": "Game"
+        },
+        "series_ticker": "KXNFLGAME",
+        "settlement_sources": [
+            {
+                "name": "the Governing League",
+                "url": "https://www.nfl.com/"
+            }
+        ],
+        "strike_period": "",
+        "sub_title": "KC vs LV (Oct 4)",
+        "title": "KC Chiefs vs LV Raiders"
+    },
+    "markets": []
+}
