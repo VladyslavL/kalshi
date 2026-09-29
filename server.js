@@ -21,13 +21,12 @@
 const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
+const { fixtureFile } = require('./lib/fixtures');
 
 const PORT = Number(process.env.PORT) || 8787;
 const DEV = process.env.DEV === '1';
 const ROOT = __dirname;
-const DATA = path.join(ROOT, 'data');
 const STATIC_DIRS = ['css', 'js', 'assets'];
-const TICKER = /^[A-Z0-9-]+$/;
 
 const MIME = {
     '.html': 'text/html; charset=utf-8',
@@ -56,11 +55,10 @@ function cacheControl(url, file) {
 
 // Maps an API request onto its fixture file, or null for a non-API route.
 function fixtureFor(url) {
-    if (url.pathname === '/events') return path.join(DATA, 'events.json');
+    if (url.pathname === '/events') return fixtureFile('events');
     const event = /^\/events\/([^/]+)$/.exec(url.pathname);
-    if (event && TICKER.test(event[1])) return path.join(DATA, 'events', `${event[1]}.json`);
-    const market = url.searchParams.get('ticker') || '';
-    if (url.pathname === '/markets/trades' && TICKER.test(market)) return path.join(DATA, 'trades', `${market}.json`);
+    if (event) return fixtureFile('event', event[1]);
+    if (url.pathname === '/markets/trades') return fixtureFile('trades', url.searchParams.get('ticker'));
     return null;
 }
 

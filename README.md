@@ -100,6 +100,9 @@ js/data.js          game selection, polling, JSON -> per-game state
 js/feed.js          trades feed animation only (no fetching)
 js/board.js         rendering, display state machine, rotation
 server.js           dev server: static files + mock JSON API
+lib/fixtures.js     which data/ file answers which mocked call (server.js + api/mock.js)
+api/mock.js         Vercel function: the mock JSON API in production
+vercel.json         Vercel rewrites (API -> api/mock.js), function files, cache headers
 scripts/snapshot.js re-captures data/ from the live API
 data/               JSON snapshot
 assets/             wordmark, OO Theran, helmets (from the deployed board's CDN)
@@ -217,11 +220,15 @@ new file name (or invalidate it on the CDN).
 
 ## Deploy / rollback
 
-**Vercel:** `vercel.json` serves the static files and replaces `server.js`:
-rewrites map `/events`, `/events/{EVENT}` and `/markets/trades?ticker=…` onto
-the JSON in `data/`, and the headers apply the cache policy below (API paths
-`no-store`, so the edge never adds an `Age` that would make the data look
-stale). `.vercelignore` leaves out `server.js` and `scripts/`. Refresh the
+**Vercel:** Vercel serves the static files; `vercel.json` rewrites
+`/events`, `/events/{EVENT}` and `/markets/trades?ticker=…` to the function
+`api/mock.js`, which returns the JSON from `data/` (bundled via
+`includeFiles`) with `Cache-Control: no-store`. It is a function, not static
+JSON, on purpose: Vercel's edge caches static files for the whole deployment
+and adds a growing `Age` header, which the board reads as the data's age and
+goes `stale` after 2 minutes. The headers in `vercel.json` apply the cache
+policy below to the page and assets. `.vercelignore` leaves out `server.js`
+and `scripts/`. Refresh the
 snapshot (`node scripts/snapshot.js`) before deploying, then:
 
 ```sh

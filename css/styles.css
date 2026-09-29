@@ -110,8 +110,8 @@ body.board {
 .pair > [data-slot="right"] { grid-column: 3; }
 
 .names { margin-top: 1.155rem; }
-.odds { margin-top: 4.52rem; }
-.pills { margin-top: 1.33rem; }
+.odds { margin-top: 3.5rem; }
+.pills { margin-top: 3rem; }
 
 /* The helmet PNGs carry transparent padding; the 44rem image overhangs its
    row by 3rem top and bottom instead of pushing the names down. */

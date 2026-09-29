@@ -1,11 +1,14 @@
 {
+    "functions": {
+        "api/mock.js": { "includeFiles": "data/**" }
+    },
     "rewrites": [
-        { "source": "/events", "destination": "/data/events.json" },
-        { "source": "/events/:ticker", "destination": "/data/events/:ticker.json" },
+        { "source": "/events", "destination": "/api/mock?route=events" },
+        { "source": "/events/:ticker", "destination": "/api/mock?route=event&ticker=:ticker" },
         {
             "source": "/markets/trades",
             "has": [{ "type": "query", "key": "ticker", "value": "(?<ticker>[A-Z0-9-]+)" }],
-            "destination": "/data/trades/:ticker.json"
+            "destination": "/api/mock?route=trades&ticker=:ticker"
         }
     ],
     "headers": [
@@ -16,20 +19,6 @@
             "has": [{ "type": "query", "key": "v" }],
             "headers": [{ "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }]
         },
-        { "source": "/assets/(.*)", "headers": [{ "key": "Cache-Control", "value": "public, max-age=86400" }] },
-        {
-            "source": "/events(.*)",
-            "headers": [
-                { "key": "Cache-Control", "value": "no-store" },
-                { "key": "CDN-Cache-Control", "value": "no-store" }
-            ]
-        },
-        {
-            "source": "/markets/(.*)",
-            "headers": [
-                { "key": "Cache-Control", "value": "no-store" },
-                { "key": "CDN-Cache-Control", "value": "no-store" }
-            ]
-        }
+        { "source": "/assets/(.*)", "headers": [{ "key": "Cache-Control", "value": "public, max-age=86400" }] }
     ]
 }
