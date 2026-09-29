@@ -5,19 +5,26 @@
 // track is shifted up by their height with no transition, then released back
 // to 0 with a slightly overshooting curve: a 500 ms fade-in plus a soft
 // bounce-settle. The bottom fade is a fixed mask on the feed window (CSS).
+//
+// Quiet window: no batch starts if it would still be moving at the next matchup
+// swap (`nextSwapAt()`), so the swap's snapshot always catches the feed at rest.
 
 (function () {
     'use strict';
 
     window.Board = window.Board || {};
 
-    Board.createFeed = function ({ track, config, getTrades, describe }) {
+    Board.createFeed = function ({ track, config, getTrades, describe, nextSwapAt }) {
         const { formatMoney, randomBetween } = Board.utils;
         const feed = config.feed;
         // The window shows visibleRows; a batch is prepended above it and slides
         // in, so the track holds visibleRows + maxBatch rows and extras are only
         // ever trimmed below the window, out of sight.
         const maxRows = feed.visibleRows + feed.maxBatch;
+        // Bounce duration: base + per row + up to `jitterMs`. The longest a batch
+        // is in motion (the 500 ms fade-in is shorter) sizes the quiet window.
+        const BOUNCE = { baseMs: 340, perRowMs: 130, jitterMs: 130 };
+        const MAX_MOTION_MS = BOUNCE.baseMs + feed.maxBatch * BOUNCE.perRowMs + BOUNCE.jitterMs;
         let index = 0;
         let held = false;            // arrivals paused (see freeze)
 
@@ -60,7 +67,7 @@
             track.style.transition = 'none';
             track.style.transform = `translateY(${-pitch * batch}px)`;
             void track.offsetHeight;   // commit the offset before releasing it
-            const duration = Math.round(340 + batch * 130 + Math.random() * 130);
+            const duration = Math.round(BOUNCE.baseMs + batch * BOUNCE.perRowMs + Math.random() * BOUNCE.jitterMs);
             track.style.transition = `transform ${duration}ms cubic-bezier(0.34, 1.2, 0.64, 1)`;
             track.style.transform = 'translateY(0)';
             while (track.children.length > maxRows) track.lastChild.remove();
@@ -73,7 +80,8 @@
         }
 
         function tick() {
-            if (!held) step(getTrades());
+            const quiet = nextSwapAt() - Date.now() < MAX_MOTION_MS;
+            if (!held && !quiet) step(getTrades());
             setTimeout(tick, randomBetween(feed.minGapMs, feed.minGapMs + feed.gapJitterMs));
         }
 
@@ -82,10 +90,10 @@
             index = 0;
         }
 
-        // Pauses arrivals and puts the rows in motion at rest at once (track in
-        // place, entering rows fully shown), so a snapshot (the outgoing side of a
-        // View Transition) never freezes rows mid-entry as a gap. resume() lets
-        // the flow continue.
+        // Pauses arrivals for the swap. The quiet window normally leaves nothing in
+        // motion; anything still moving (timer drift) is put at rest at once, so
+        // the outgoing snapshot never freezes rows mid-entry as a gap. resume()
+        // lets the flow continue.
         function freeze() {
             held = true;
             track.style.transition = 'none';

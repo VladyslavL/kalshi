@@ -165,10 +165,10 @@ currently considers fresh.
   blocks, `matchup-teams` (helmets, names, odds, pills) and `matchup-feed`
   (the feed window), are swapped at once in one synchronous update inside a
   View Transition, a 1 s crossfade of just those two regions (the root isn't
-  captured). Just before it the feed's rows in motion are put at rest
-  instantly (track in place, entering rows fully shown), because the outgoing
-  side is a frozen snapshot and would otherwise show half-faded rows as a
-  gap. Logo, headline, frame and the status line (between the two blocks)
+  captured). The outgoing side is a frozen snapshot, so the feed keeps a
+  quiet window before each swap: no batch starts if it would still be moving
+  at the swap (≤ ~1.1 s), and the snapshot always catches the feed at rest.
+  Anything still moving because of timer drift is put at rest instantly. Logo, headline, frame and the status line (between the two blocks)
   never move; the feed is refilled with the new game's rows in the same
   update, so it never goes empty, and its ticks carry on. A next game that
   isn't prepared by the tick, or isn't live, is skipped and the current

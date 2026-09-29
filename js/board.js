@@ -31,6 +31,7 @@
     let lastTradesAt = 0;
     let rotating = false;
     let upNext = null;             // the next game, once prepared
+    let rotationEpoch = 0;         // rotation ticks fall on rotationEpoch + n × rotateMs
 
     // { left, right }: the [data-slot] element per slot (or its `descendant`).
     function bySlot(selector, descendant = '') {
@@ -172,6 +173,14 @@
         return fadeSwap(update);
     }
 
+    // When the next matchup swap is due; never while there is nothing to rotate
+    // to (a pinned or single game), so the feed gets no quiet windows then.
+    function nextSwapAt() {
+        if (!data?.next()) return Infinity;
+        const elapsed = Date.now() - rotationEpoch;
+        return rotationEpoch + Math.ceil(elapsed / config.rotateMs) * config.rotateMs;
+    }
+
     // Readies the following game in the background, so the next tick can switch
     // to it at once.
     function prepareNext() {
@@ -215,7 +224,7 @@
         document.fonts.ready.then(fitNames);
 
         feed = Board.createFeed({
-            track: els.track, config, getTrades: freshTrades, describe: describeTrade,
+            track: els.track, config, getTrades: freshTrades, describe: describeTrade, nextSwapAt,
         });
         if (!settings.event || pinned) {
             data = Board.createDataSource({ config, apiBase: settings.apiBase, teams: TEAMS, pinned, onChange: render });
@@ -223,6 +232,7 @@
         }
         render();
         setInterval(render, 1000);   // expires stale values even when polls stop answering
+        rotationEpoch = Date.now();
         setInterval(rotate, config.rotateMs);
         feed.start();
     }
