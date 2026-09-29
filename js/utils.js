@@ -1,13 +1,25 @@
 // Small pure helpers shared by the data, feed and board modules.
 
-window.Board = window.Board || {};
-
-Board.utils = (function () {
+(function () {
     'use strict';
 
-    function queryParam(name) {
-        return new URLSearchParams(window.location.search).get(name);
+    window.Board = window.Board || {};
+
+    const MONTHS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+
+    // URL overrides on top of the config, resolved once; the config itself is
+    // never changed.
+    function urlSettings(config) {
+        const params = new URLSearchParams(window.location.search);
+        return {
+            apiBase: params.get('api') || config.apiBase,
+            event: params.get('event') || config.event,
+        };
     }
+
+    // Called with every caught error. A stub for now: plug a real error
+    // collector in here.
+    function logger(error, context) {}
 
     function upper(value) {
         return (value || '').trim().toUpperCase();
@@ -19,24 +31,29 @@ Board.utils = (function () {
 
     // "KXNFLGAME-26OCT01PITCLE-PIT" -> "PIT"
     function marketSuffix(ticker) {
-        return (ticker || '').split('-').pop();
+        return ticker.split('-').pop();
     }
 
-    // KXNFLGAME-26OCT01PITCLE -> { ticker, blob: 'PITCLE', away: 'PIT', home: 'CLE' }.
-    // away/home stay null when the blob splits into known teams more than one
-    // way; the event's market tickers settle it later.
+    // KXNFLGAME-26OCT01PITCLE -> { ticker, date: '2026-10-01', away: 'PIT', home: 'CLE' },
+    // or null when it isn't a `series` ticker or doesn't split into two known teams.
     function parseEventTicker(ticker, series, teams) {
-        const match = new RegExp(`^${series}-\\d{2}[A-Z]{3}\\d{2}([A-Z0-9]+)$`).exec(upper(ticker));
+        const normalized = upper(ticker);
+        const pattern = new RegExp(`^${series}-(\\d{2})(${MONTHS.join('|')})(\\d{2})([A-Z0-9]+)$`);
+        const match = pattern.exec(normalized);
         if (!match) return null;
-        const blob = match[1];
-        const splits = [];
-        for (let cut = 1; cut < blob.length; cut++) {
-            const away = blob.slice(0, cut);
-            const home = blob.slice(cut);
-            if (teams[away] && teams[home]) splits.push({ away, home });
+        const [, year, month, day, pair] = match;
+        const date = `20${year}-${String(MONTHS.indexOf(month) + 1).padStart(2, '0')}-${day}`;
+        for (let cut = 1; cut < pair.length; cut++) {
+            const away = pair.slice(0, cut);
+            const home = pair.slice(cut);
+            if (teams[away] && teams[home]) return { ticker: normalized, date, away, home };
         }
-        const only = splits.length === 1 ? splits[0] : null;
-        return { ticker: upper(ticker), blob, away: only?.away ?? null, home: only?.home ?? null };
+        return null;
+    }
+
+    // Writes text only when it differs, so a steady render never touches the DOM.
+    function setText(element, text) {
+        if (element.textContent !== text) element.textContent = text;
     }
 
     // Relative luminance, per WCAG.
@@ -86,16 +103,9 @@ Board.utils = (function () {
         return img.decode().catch(() => {});
     }
 
-    // Resolves true if `promise` settles within `ms`, false otherwise.
-    function settlesWithin(promise, ms) {
-        return Promise.race([
-            promise.then(() => true, () => true),
-            new Promise(resolve => setTimeout(() => resolve(false), ms)),
-        ]);
-    }
-
-    return {
-        queryParam, upper, formatMoney, marketSuffix, parseEventTicker, readableOnBlack, fitText, randomBetween,
-        preloadImage, settlesWithin,
+    Board.utils = {
+        urlSettings, logger, formatMoney, marketSuffix, parseEventTicker, setText, readableOnBlack, fitText, randomBetween,
+        preloadImage,
     };
 })();
+

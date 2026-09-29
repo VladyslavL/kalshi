@@ -2,15 +2,10 @@
 // today's open games (New York date) by volume, then upcoming games by date
 // and volume, capped at `count`.
 
-'use strict';
+(function () {
+    'use strict';
 
-window.Board = window.Board || {};
-
-Board.games = (function () {
-    const MONTHS = {
-        JAN: 1, FEB: 2, MAR: 3, APR: 4, MAY: 5, JUN: 6,
-        JUL: 7, AUG: 8, SEP: 9, OCT: 10, NOV: 11, DEC: 12,
-    };
+    window.Board = window.Board || {};
 
     const NEW_YORK_DATE = new Intl.DateTimeFormat('en-US', {
         timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit',
@@ -22,52 +17,32 @@ Board.games = (function () {
         return `${parts.year}-${parts.month}-${parts.day}`;
     }
 
-    // "KXNFLGAME-26OCT01PITCLE" -> "2026-10-01", or null.
-    function eventDay(ticker) {
-        const match = /-(\d{2})(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)(\d{2})[A-Z0-9]*$/.exec(ticker);
-        if (!match) return null;
-        return `${2000 + Number(match[1])}-${String(MONTHS[match[2]]).padStart(2, '0')}-${match[3]}`;
-    }
-
-    function hasResult(value) {
-        return value !== undefined && value !== null && String(value).trim() !== '';
-    }
-
     function activeMarkets(event) {
-        const status = String(event.status ?? '').toLowerCase();
-        if ((status && status !== 'open') || hasResult(event.result)) return [];
-        return (event.markets || []).filter(market => String(market.market_type).toLowerCase() === 'binary'
-            && ['active', 'open'].includes(String(market.status).toLowerCase())
-            && !hasResult(market.result));
+        return event.markets.filter(market => market.market_type === 'binary'
+            && ['active', 'open'].includes(market.status)
+            && !market.result);
     }
 
     function volumeOf(markets) {
-        return markets.reduce((total, market) => {
-            const volume = Number.parseFloat(market.volume_fp ?? market.volume);
-            return total + (Number.isFinite(volume) ? volume : 0);
-        }, 0);
+        return markets.reduce((total, market) => total + parseFloat(market.volume_fp), 0);
     }
 
-    function select(events, series, count, now = new Date()) {
+    // -> [{ game, event }] in rotation order; `game` is the parsed ticker.
+    function select(events, series, teams, count, now = new Date()) {
         const today = dayKey(now);
-        const unique = new Map();
-        events.forEach(event => {
-            const ticker = String(event.event_ticker || '').toUpperCase();
-            const date = eventDay(ticker);
+        const candidates = events.flatMap(event => {
+            const game = Board.utils.parseEventTicker(event.event_ticker, series, teams);
             const markets = activeMarkets(event);
-            if (!ticker.startsWith(`${series}-`) || !date || date < today || markets.length < 2) return;
-            const candidate = { event, ticker, date, volume: volumeOf(markets) };
-            const current = unique.get(ticker);
-            if (!current || candidate.volume > current.volume) unique.set(ticker, candidate);
+            if (!game || game.date < today || markets.length < 2) return [];
+            return [{ game, event, volume: volumeOf(markets) }];
         });
 
-        const candidates = [...unique.values()];
-        const byVolume = (a, b) => b.volume - a.volume || a.ticker.localeCompare(b.ticker);
-        const todayGames = candidates.filter(game => game.date === today).sort(byVolume);
-        const futureGames = candidates.filter(game => game.date > today)
-            .sort((a, b) => a.date.localeCompare(b.date) || byVolume(a, b));
-        return todayGames.concat(futureGames).slice(0, count).map(game => game.event);
+        const byVolume = (a, b) => b.volume - a.volume || a.game.ticker.localeCompare(b.game.ticker);
+        const todayGames = candidates.filter(({ game }) => game.date === today).sort(byVolume);
+        const futureGames = candidates.filter(({ game }) => game.date > today)
+            .sort((a, b) => a.game.date.localeCompare(b.game.date) || byVolume(a, b));
+        return todayGames.concat(futureGames).slice(0, count).map(({ game, event }) => ({ game, event }));
     }
 
-    return { select, dayKey };
+    Board.games = { select, dayKey };
 })();

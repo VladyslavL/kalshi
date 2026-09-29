@@ -20,14 +20,15 @@ DEV=1 node server.js             # no caching, so edits show without a version b
 Open the page over http, not `file://`: browsers load fonts under CORS
 rules, and Safari refuses local font files for a `file://` page. The data
 URL comes from `apiBase` in `js/config.js` (`''` = same origin), overridable
-with `?api=`. The board is authored at 1080×1920 and fits any window at
+with `?api=`. URL params never modify `Board.config`; they are resolved once
+into a separate settings object (`utils.urlSettings`). The board is authored at 1080×1920 and fits any window at
 9:16 (rem-based, see [Layout](#layout)).
 
 ### URL params
 
 | Param | Effect |
 |---|---|
-| *(none)* | Daily rotation: top `dailyGames` open games, `rotateMs` each |
+| *(none)* | Daily rotation: top `dailyGames` open games, one every `rotateMs` |
 | `?event=KXNFLGAME-26OCT01PITCLE` | Pin one matchup (away left, home right, read from the ticker) |
 | `?api=https://…` | Data server base URL |
 
@@ -42,6 +43,8 @@ trade-api v2 endpoints the board reads with JSON from `data/`:
 | `GET /events?series_ticker=KXNFLGAME&status=open&limit=200&with_nested_markets=true` | `data/events.json` |
 | `GET /events/{EVENT}?with_nested_markets=true` | `data/events/{EVENT}.json` |
 | `GET /markets/trades?ticker={EVENT}-{TEAM}&limit=20` | `data/trades/{EVENT}-{TEAM}.json` |
+
+Any non-GET/HEAD request → 405.
 
 The fixtures are a real snapshot of the live API (no invented values).
 Refresh them with:
@@ -63,15 +66,14 @@ origins, so it has to be a server-side proxy (credentials stay there).
 |---|---|
 | `apiBase` | Data server base URL |
 | `series`, `event` | Event series; `event` pins one ticker (`null` → daily rotation) |
-| `dailyGames`, `rotateMs` | Rotation size, time per matchup |
+| `dailyGames`, `rotateMs` | Rotation size; fixed rotation step (10 s, crossfade included) |
 | `fadeMs`, `swapFadeMs` | Crossfade duration (View Transitions); fade-out/in duration of the fallback |
-| `prepareTimeoutMs` | Next game not ready by then → rotation skipped this cycle |
-| `gamesRefreshMs`, `gamesRetryMs` | Re-select games every 5 min; retry every 30 s until a list loads |
-| `oddsRefreshMs`, `tradesRefreshMs` | Poll intervals for the matchup on screen (15 s / 30 s) |
+| `gamesRefreshMs`, `gamesRetryMs` | Re-select games every 5 min; every 30 s check: retry until a list loads, re-select when the New York date changes |
+| `oddsRefreshMs`, `tradesRefreshMs` | Poll intervals for the matchup on screen (30 s / 30 s, as on the deployed board) |
 | `staleAfterMs` | Data older than this (120 s) is taken off screen |
 | `helmetsPath` | Helmet folder |
 | `feed` | Feed motion: tick gap, batch size; `visibleRows` sets the feed window height in rows (the row buffer is derived from it) |
-| `text` | Status line copy per state |
+| `text` | Status line copy, keyed by display state (`loading`, `live`, `stale`, `closed`, `no-game`) |
 
 Teams (name, colour, helmet slug) are in `js/teams.js`; helmet PNGs in
 `assets/helmets/{slug}.png`.
@@ -88,9 +90,9 @@ subsets don't include `→`.
 ```
 index.html          stage markup
 css/styles.css      1080×1920 geometry, feed motion, state + rotation styles
-js/config.js        configuration
+js/config.js        configuration (read-only after load)
 js/teams.js         NFL team table
-js/utils.js         pure helpers (ticker parsing, colours, money, text fitting)
+js/utils.js         helpers (URL settings, logger stub, ticker parsing, colours, money, text fitting)
 js/games.js         daily game selection (port of the deployed daily-games.js)
 js/api.js           cached JSON client: LRU cache, request dedupe, timeout,
                     429 backoff with Retry-After + jitter, stale fallback
@@ -102,6 +104,9 @@ scripts/snapshot.js re-captures data/ from the live API
 data/               JSON snapshot
 assets/             wordmark, OO Theran, helmets (from the deployed board's CDN)
 ```
+
+Every `js/*.js` file is an IIFE (`'use strict'`) that attaches its export to
+`window.Board`, so nothing leaks into the shared global scope.
 
 Animation and polling are independent: `data.js` polls on its own timers,
 `feed.js` runs its own irregular tick and only reads the trades `board.js`
@@ -151,30 +156,41 @@ currently considers fresh.
 - **Feed:** every 0.7–1.8 s, 1–5 rows enter at the top with a 500 ms ease-out
   fade while the track bounce-settles downward; a fixed CSS mask on the feed
   window fades the bottom out to transparent.
-- **Rotation:** every `rotateMs` the next game is prepared off screen first
-  (odds and trades refreshed, helmets decoded). Only then are the two
-  `.matchup` blocks, `matchup-teams` (helmets, names, odds, pills) and
-  `matchup-feed` (the feed window), swapped in one synchronous update inside
-  a View Transition, a 1 s crossfade of just those two regions (the root
-  isn't captured). Right before it, the feed
-  holds new arrivals until the rows already in motion come to rest (≤ ~1 s),
-  because the outgoing side is a frozen snapshot and would otherwise show
-  half-faded rows as a gap; arrivals resume at the swap. Logo, headline,
-  frame and the status line (between the two blocks) aren't part of the
-  transition and never move; the feed is refilled with
-  the new game's rows in the same update, so it never goes empty, and its ticks
-  keep running. A game that isn't ready within `prepareTimeoutMs`, or isn't
-  live, is skipped and the current matchup stays up. Without View Transitions
-  (older players) both blocks fade out, swap and fade back in
-  (`swapFadeMs`).
+- **Rotation:** a fixed `rotateMs` step (10 s, as on the deployed board).
+  Right after each switch the next game is prepared in the background (odds
+  and trades refreshed, helmets decoded). On the next tick the two `.matchup`
+  blocks, `matchup-teams` (helmets, names, odds, pills) and `matchup-feed`
+  (the feed window), are swapped at once in one synchronous update inside a
+  View Transition, a 1 s crossfade of just those two regions (the root isn't
+  captured). Just before it the feed's rows in motion are put at rest
+  instantly (track in place, entering rows fully shown), because the outgoing
+  side is a frozen snapshot and would otherwise show half-faded rows as a
+  gap. Logo, headline, frame and the status line (between the two blocks)
+  never move; the feed is refilled with the new game's rows in the same
+  update, so it never goes empty, and its ticks carry on. A next game that
+  isn't prepared by the tick, or isn't live, is skipped and the current
+  matchup stays up. Without View Transitions (older players) both blocks fade
+  out, swap and fade back in (`swapFadeMs`).
 
-Known behaviour kept from the deployed board (to revisit):
-1. The feed cycles through the latest fetched trade set, so a trade can appear
-   more than once between polls.
-2. A trade's team is taken from its market ticker, not `taker_side`, and its
-   amount uses `yes_price` — a NO buy on `…-PIT` shows as Pittsburgh.
+Kept from the deployed board on purpose: the feed cycles through the latest
+fetched trade set (20 per team market, refreshed every 30 s), so a trade can
+appear more than once between polls. It is a lively, real-data advertising
+feed, not a tick-by-tick trade tape.
 
-Fixed: trades under $0.50 are dropped instead of showing as `$0`.
+Fixed compared with the deployed board:
+- **Trade side and amount:** each team has its own YES/NO market. A taker
+  buying YES on `…-PIT` backs Pittsburgh at the YES price; buying NO backs
+  Cleveland at the NO price. The deployed board labelled every trade with
+  the market's team and priced it at YES.
+- Trades under $0.50 are dropped instead of showing as `$0`.
+
+## Errors
+
+Every caught error (games/odds/trades failures, a failure covered by cached
+data tagged `(serving cached)`, a helmet that fails to load) is passed to
+`Board.utils.logger(error, context)`. It is a no-op stub: plug a real error
+collector in there. Values still expire by age; nothing is replaced by
+placeholder data.
 
 ## Caching and versions
 

@@ -2,9 +2,10 @@
 // maps the data onto a display state, rotates matchups and hands fresh trades
 // to the feed.
 //
-// Rotation: the next game is prepared off screen first (odds + trades
-// refreshed, helmets decoded); only then are the .matchup blocks swapped in one
-// synchronous update inside a View Transition, so logo, frame and status line
+// Rotation runs on a fixed rotateMs step. Right after each switch the next
+// game is prepared in the background (odds + trades refreshed, helmets
+// decoded), so on the next tick the .matchup blocks are swapped at once in one
+// synchronous update inside a View Transition: logo, frame and status line
 // never move and the feed never goes empty. Without View Transitions the blocks
 // fade out and back in instead.
 //
@@ -18,28 +19,39 @@
 (function () {
     'use strict';
 
+    window.Board = window.Board || {};
+
     const { config, TEAMS, utils } = Board;
     const SLOTS = ['left', 'right'];
-    const STATUS_TEXT = {
-        loading: config.text.loading,
-        live: config.text.live,
-        stale: config.text.stale,
-        closed: config.text.closed,
-        'no-game': config.text.noGame,
-    };
     let stage = null;
+    let els = null;                // element references, looked up once in init
     let data = null;
     let feed = null;
-    let renderedKey = '';
+    let renderedTicker = '';
     let lastTradesAt = 0;
     let rotating = false;
+    let upNext = null;             // the next game, once prepared
 
-    function el(selector) {
-        return stage.querySelector(selector);
+    // { left, right }: the [data-slot] element per slot (or its `descendant`).
+    function bySlot(selector, descendant = '') {
+        return Object.fromEntries(SLOTS.map(slot =>
+            [slot, stage.querySelector(`${selector}[data-slot="${slot}"] ${descendant}`)]));
+    }
+
+    function findElements() {
+        return {
+            helmets: bySlot('.helmet'),
+            names: bySlot('.team-name'),
+            percents: bySlot('.pct', '.value'),
+            payouts: bySlot('.payout', '.to'),
+            status: stage.querySelector('.odds-status'),
+            track: stage.querySelector('.trades-feed-track'),
+            matchups: stage.querySelectorAll('.matchup'),
+        };
     }
 
     function teamFor(game, slot) {
-        return TEAMS[slot === 'left' ? game.away : game.home] || null;
+        return TEAMS[slot === 'left' ? game.away : game.home];
     }
 
     function helmetUrl(team) {
@@ -48,39 +60,39 @@
 
     // A missing helmet PNG hides that helmet instead of showing a broken image.
     function renderHelmet(slot, team) {
-        const img = el(`.helmet[data-slot="${slot}"]`);
+        const img = els.helmets[slot];
         img.classList.remove('missing');
-        img.onerror = () => img.classList.add('missing');
+        img.onerror = () => {
+            img.classList.add('missing');
+            utils.logger(new Error(`Helmet failed to load: ${img.src}`), 'helmet');
+        };
         img.alt = team.name;
         img.src = helmetUrl(team);
     }
 
     function preloadHelmets(game) {
-        return Promise.all(SLOTS.map(slot => teamFor(game, slot)).filter(Boolean)
-            .map(team => utils.preloadImage(helmetUrl(team))));
+        return Promise.all(SLOTS.map(slot => utils.preloadImage(helmetUrl(teamFor(game, slot)))));
     }
 
     function fitNames() {
-        SLOTS.forEach(slot => utils.fitText(el(`.team-name[data-slot="${slot}"]`)));
+        SLOTS.forEach(slot => utils.fitText(els.names[slot]));
     }
 
     function renderMatchup(game) {
-        const key = `${game.ticker}|${game.away}|${game.home}`;
-        if (key === renderedKey) return;
-        renderedKey = key;
+        if (game.ticker === renderedTicker) return;
+        renderedTicker = game.ticker;
         SLOTS.forEach(slot => {
             const team = teamFor(game, slot);
-            if (!team) return;
             stage.style.setProperty(`--${slot}-color`, utils.readableOnBlack(team.color));
             renderHelmet(slot, team);
-            el(`.team-name[data-slot="${slot}"]`).textContent = team.name;
+            els.names[slot].textContent = team.name;
         });
         fitNames();
     }
 
     function setSlot(slot, percent, payout) {
-        el(`.pct[data-slot="${slot}"] .value`).textContent = percent;
-        el(`.payout[data-slot="${slot}"] .to`).textContent = payout;
+        utils.setText(els.percents[slot], percent);
+        utils.setText(els.payouts[slot], payout);
     }
 
     // Percentages are complementary shares (always add to 100); payouts stay
@@ -116,7 +128,7 @@
 
     function describeTrade(trade) {
         const slot = trade.abbr === data.current().game.away ? 'left' : 'right';
-        return { slot, name: TEAMS[trade.abbr]?.name || trade.abbr };
+        return { slot, name: TEAMS[trade.abbr].name };
     }
 
     function render() {
@@ -127,8 +139,8 @@
             feed.rewind();
         }
         const state = currentState();
-        stage.dataset.state = state;
-        el('.odds-status').textContent = STATUS_TEXT[state];
+        if (stage.dataset.state !== state) stage.dataset.state = state;
+        utils.setText(els.status, config.text[state]);
         if (state === 'live') renderOdds(entry.prices);
         else clearOdds();
     }
@@ -145,12 +157,11 @@
     }
 
     function fadeSwap(update) {
-        const blocks = stage.querySelectorAll('.matchup');
         return new Promise(resolve => {
-            blocks.forEach(block => block.classList.add('swapping'));
+            els.matchups.forEach(block => block.classList.add('swapping'));
             setTimeout(() => {
                 update();
-                blocks.forEach(block => block.classList.remove('swapping'));
+                els.matchups.forEach(block => block.classList.remove('swapping'));
                 setTimeout(resolve, config.swapFadeMs);
             }, config.swapFadeMs);
         });
@@ -161,43 +172,54 @@
         return fadeSwap(update);
     }
 
-    // A game that isn't ready in time, or isn't live, is skipped this cycle and
-    // the current matchup stays up.
-    async function rotate() {
+    // Readies the following game in the background, so the next tick can switch
+    // to it at once.
+    function prepareNext() {
+        upNext = null;
         const next = data?.next();
-        if (rotating || !next) return;
+        if (!next) return;
+        Promise.all([data.prepare(next), preloadHelmets(next.game)]).then(() => {
+            if (data.next() === next) upNext = next;
+        });
+    }
+
+    // A next game that isn't prepared yet, or isn't live, is skipped this cycle
+    // and the current matchup stays up.
+    async function rotate() {
+        const next = upNext;
+        if (rotating) return;
+        if (!next || next !== data.next() || stateOf(next) !== 'live') {
+            prepareNext();
+            return;
+        }
         rotating = true;
         try {
-            const prepared = Promise.all([data.prepare(next), preloadHelmets(next.game)]);
-            const ready = await utils.settlesWithin(prepared, config.prepareTimeoutMs);
-            if (ready && stateOf(next) === 'live') {
-                await feed.settle();   // the outgoing snapshot must not catch rows mid-entry
-                await swapMatchup(() => showEntry(next));
-            }
+            feed.freeze();   // the outgoing snapshot must not catch rows mid-entry
+            await swapMatchup(() => showEntry(next));
         } finally {
             rotating = false;
+            prepareNext();
         }
     }
 
     function init() {
         stage = document.querySelector('.stage');
+        els = findElements();
+        const settings = utils.urlSettings(config);
         const root = document.documentElement.style;
         root.setProperty('--fade', `${config.fadeMs}ms`);
         root.setProperty('--swap-fade', `${config.swapFadeMs}ms`);
         root.setProperty('--feed-rows', config.feed.visibleRows);
-        const api = utils.queryParam('api');
-        if (api) config.apiBase = api;
-        const eventParam = utils.queryParam('event') || config.event;
-        const pinned = eventParam ? utils.parseEventTicker(eventParam, config.series, TEAMS) : null;
+        const pinned = settings.event ? utils.parseEventTicker(settings.event, config.series, TEAMS) : null;
 
         document.fonts.ready.then(fitNames);
 
         feed = Board.createFeed({
-            track: el('.trades-feed-track'), config, getTrades: freshTrades, describe: describeTrade,
+            track: els.track, config, getTrades: freshTrades, describe: describeTrade,
         });
-        if (!eventParam || pinned) {
-            data = Board.createDataSource({ config, teams: TEAMS, pinned, onChange: render });
-            data.start();
+        if (!settings.event || pinned) {
+            data = Board.createDataSource({ config, apiBase: settings.apiBase, teams: TEAMS, pinned, onChange: render });
+            data.start().then(prepareNext);
         }
         render();
         setInterval(render, 1000);   // expires stale values even when polls stop answering
