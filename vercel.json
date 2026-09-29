@@ -1,0 +1,35 @@
+{
+    "rewrites": [
+        { "source": "/events", "destination": "/data/events.json" },
+        { "source": "/events/:ticker", "destination": "/data/events/:ticker.json" },
+        {
+            "source": "/markets/trades",
+            "has": [{ "type": "query", "key": "ticker", "value": "(?<ticker>[A-Z0-9-]+)" }],
+            "destination": "/data/trades/:ticker.json"
+        }
+    ],
+    "headers": [
+        { "source": "/", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] },
+        { "source": "/index.html", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] },
+        {
+            "source": "/(css|js)/(.*)",
+            "has": [{ "type": "query", "key": "v" }],
+            "headers": [{ "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }]
+        },
+        { "source": "/assets/(.*)", "headers": [{ "key": "Cache-Control", "value": "public, max-age=86400" }] },
+        {
+            "source": "/events(.*)",
+            "headers": [
+                { "key": "Cache-Control", "value": "no-store" },
+                { "key": "CDN-Cache-Control", "value": "no-store" }
+            ]
+        },
+        {
+            "source": "/markets/(.*)",
+            "headers": [
+                { "key": "Cache-Control", "value": "no-store" },
+                { "key": "CDN-Cache-Control", "value": "no-store" }
+            ]
+        }
+    ]
+}

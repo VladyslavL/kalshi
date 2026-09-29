@@ -217,6 +217,20 @@ new file name (or invalidate it on the CDN).
 
 ## Deploy / rollback
 
+**Vercel:** `vercel.json` serves the static files and replaces `server.js`:
+rewrites map `/events`, `/events/{EVENT}` and `/markets/trades?ticker=…` onto
+the JSON in `data/`, and the headers apply the cache policy below (API paths
+`no-store`, so the edge never adds an `Age` that would make the data look
+stale). `.vercelignore` leaves out `server.js` and `scripts/`. Refresh the
+snapshot (`node scripts/snapshot.js`) before deploying, then:
+
+```sh
+npm i -g vercel
+vercel          # preview (Framework: Other, no build command, output: root)
+vercel --prod   # production
+```
+
+
 Upload the static files (everything except `server.js`, `scripts/`, `data/`)
 to the CDN with the cache policy above, and set `apiBase` to the production
 data server. To roll back, re-upload the previous `index.html` together with
